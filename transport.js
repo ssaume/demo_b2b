@@ -9,7 +9,7 @@ function healthCheck(url,options={}){
  return new Promise((resolve,reject)=>{
   const key='demoB2BHealth_'+(options.crypto||crypto).randomUUID().replace(/-/g,''),script=d.createElement('script');let timer,finished=false;
   function finish(err,data){if(finished)return;finished=true;cancel(timer);script.remove();delete w[key];err?reject(err):resolve(data);}
-  w[key]=data=>{if(!data||data.service!=='demo-b2b')return finish(new Error('GAS 回傳內容不符，請部署 v1.0.3.1 或更新版本'));if(data.version!=='1.0.3.1')return finish(new Error('GAS 目前版本為 '+String(data.version||'未知')+'；本版需要 v1.0.3.1，請更新目前 /exec 的部署版本'));finish(null,data);};
+  w[key]=data=>{if(!data||data.service!=='demo-b2b')return finish(new Error('GAS 回傳內容不符，請部署 v1.0.3.2 或更新版本'));if(data.version!=='1.0.3.2')return finish(new Error('GAS 目前版本為 '+String(data.version||'未知')+'；本版需要 v1.0.3.2，請更新目前 /exec 的部署版本'));finish(null,data);};
   const u=new URL(url);u.searchParams.set('mode','health');u.searchParams.set('origin',origin);u.searchParams.set('callback',key);u.searchParams.set('_',Date.now());script.src=u.toString();
   script.onerror=()=>finish(new Error('瀏覽器未能載入 GAS 檢測。請試「以新視窗連線」；此訊息尚無法判定部署權限是否正確'));
   script.onload=()=>{if(!finished)finish(new Error('GAS 未回傳新版檢測結果。請在「管理部署作業」部署新版本'));};
@@ -30,7 +30,7 @@ class GasBridge{
   if(this.siteOrigin==='null')return Promise.reject(new Error('請從 GitHub Pages 網站連線，不能由本機 HTML 檔連接 GAS'));
   if(this.ready&&this.mode===mode)return this.ready;
   if(this.ready||this.peer)this.destroy();this.mode=mode;this.nonce=this.crypto.randomUUID();const attempt=++this.attempt;
-  const u=new URL(this.url);u.searchParams.set('origin',this.siteOrigin);u.searchParams.set('nonce',this.nonce);
+  const u=new URL(this.url);u.searchParams.set('_',Date.now());u.searchParams.set('origin',this.siteOrigin);u.searchParams.set('nonce',this.nonce);
   this.ready=new Promise((resolve,reject)=>{
    let settled=false;this.rejectConnect=reject;
    const fail=err=>{if(settled||attempt!==this.attempt)return;settled=true;this.rejectConnect=null;this.cancel(this.timer);this.w.removeEventListener('message',this.listener);this.frame?.remove();this.frame=null;this.peer=null;this.ready=null;reject(err);};
@@ -38,7 +38,7 @@ class GasBridge{
     const m=event.data;if(!m||m.channel!=='demo-b2b'||m.nonce!==this.nonce||!/^https:\/\/([a-z0-9-]+\.googleusercontent\.com|script\.google\.com)$/.test(event.origin)||!this.sourceBelongs(event.source))return;
     if(m.type==='error'&&!this.peer)return fail(new Error(m.error||'GAS 通道設定不正確'));
     if(m.type==='ready'&&!this.peer){
-     if(m.version!=='1.0.3.1')return fail(new Error('GAS 與前端版本不同，請重新部署新版 GAS'));
+     if(m.version!=='1.0.3.2')return fail(new Error('GAS 與前端版本不同，請重新部署新版 GAS'));
      settled=true;this.rejectConnect=null;this.peer=event.source;this.peerOrigin=event.origin;this.cancel(this.timer);this.peer.postMessage({channel:'demo-b2b',nonce:this.nonce,type:'connected'},this.peerOrigin);return resolve();
     }
     if(m.type==='response'&&event.source===this.peer){const p=this.pending.get(m.id);if(p){this.cancel(p.timer);this.pending.delete(m.id);m.result?.ok?p.resolve(m.result.data):p.reject(new Error(m.result?.error||'GAS 回應格式錯誤'));}}
@@ -47,9 +47,9 @@ class GasBridge{
    this.timer=this.delay(async()=>{
     try{const info=await healthCheck(this.url,{...this.options,origin:this.siteOrigin});
      if(!info.originAllowed)fail(new Error('來源未允許：請在 ALLOWED_ORIGINS 加入 '+this.siteOrigin));
-     else if(!info.databaseConfigured)fail(new Error('GAS 尚未初始化：請在編輯器執行 setup'));
+     else if(!info.databaseConfigured||info.databaseReady===false)fail(new Error('GAS 尚未初始化：請在編輯器執行 setup'));
      else fail(new Error(mode==='popup'?'新視窗通道尚未建立，請確認網頁是否出現 Google 登入或存取限制':'GAS 檢測正常，但嵌入通道尚未建立。請點「以新視窗連線」後再登入'));
-    }catch(err){fail(new Error(err.message+'；尚未完成連線檢測'));}
+    }catch(err){fail(new Error(err.message+'；尚未完成連線檢測。若無痕可用，請先重設網站連線；也可能是 Google 多帳號登入或第三方 Cookie 限制，請用單一 Google 帳號的瀏覽器設定檔測試'));}
    },this.options.connectTimeoutMs||45000);
    if(mode==='popup'){
     this.popup=this.w.open(u.toString(),'demo-b2b-connection-'+this.nonce,'popup,width=540,height=340');if(!this.popup)fail(new Error('新視窗被瀏覽器封鎖，請允許此網站開啟彈出式視窗'));
@@ -69,6 +69,11 @@ class GasBridge{
   });
  }
 }
-return {GasBridge,healthCheck};
+function resolveConnection(config,storage,scope){
+ const key='demo-b2b-connection:'+scope;let saved=null,legacy=null;try{saved=JSON.parse(storage.getItem(key)||'null');legacy=JSON.parse(storage.getItem('demo-b2b-url')||'null');}catch{}
+ if(saved&&saved.version===config.version&&typeof saved.url==='string')return {url:saved.url,source:'本瀏覽器設定',key,legacy,migrated:false};
+ return {url:config.gasUrl||'',source:'部署預設',key,legacy:saved?.url||legacy,migrated:!!(saved||legacy)};
+}
+return {GasBridge,healthCheck,resolveConnection};
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=PortalTransport;
