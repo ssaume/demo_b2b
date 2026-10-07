@@ -9,7 +9,7 @@ function healthCheck(url,options={}){
  return new Promise((resolve,reject)=>{
   const key='demoB2BHealth_'+(options.crypto||crypto).randomUUID().replace(/-/g,''),script=d.createElement('script');let timer,finished=false;
   function finish(err,data){if(finished)return;finished=true;cancel(timer);script.remove();delete w[key];err?reject(err):resolve(data);}
-  w[key]=data=>{if(!data||data.service!=='demo-b2b')return finish(new Error('GAS 回傳內容不符，請部署 v1.0.3.2 或更新版本'));if(data.version!=='1.0.3.2')return finish(new Error('GAS 目前版本為 '+String(data.version||'未知')+'；本版需要 v1.0.3.2，請更新目前 /exec 的部署版本'));finish(null,data);};
+  w[key]=data=>{if(!data||data.service!=='demo-b2b')return finish(new Error('GAS 回傳內容不符，請部署 v1.0.3.3 或更新版本'));if(data.version!=='1.0.3.3')return finish(new Error('GAS 目前版本為 '+String(data.version||'未知')+'；本版需要 v1.0.3.3，請更新目前 /exec 的部署版本'));finish(null,data);};
   const u=new URL(url);u.searchParams.set('mode','health');u.searchParams.set('origin',origin);u.searchParams.set('callback',key);u.searchParams.set('_',Date.now());script.src=u.toString();
   script.onerror=()=>finish(new Error('瀏覽器未能載入 GAS 檢測。請試「以新視窗連線」；此訊息尚無法判定部署權限是否正確'));
   script.onload=()=>{if(!finished)finish(new Error('GAS 未回傳新版檢測結果。請在「管理部署作業」部署新版本'));};
@@ -38,7 +38,7 @@ class GasBridge{
     const m=event.data;if(!m||m.channel!=='demo-b2b'||m.nonce!==this.nonce||!/^https:\/\/([a-z0-9-]+\.googleusercontent\.com|script\.google\.com)$/.test(event.origin)||!this.sourceBelongs(event.source))return;
     if(m.type==='error'&&!this.peer)return fail(new Error(m.error||'GAS 通道設定不正確'));
     if(m.type==='ready'&&!this.peer){
-     if(m.version!=='1.0.3.2')return fail(new Error('GAS 與前端版本不同，請重新部署新版 GAS'));
+     if(m.version!=='1.0.3.3')return fail(new Error('GAS 與前端版本不同，請重新部署新版 GAS'));
      settled=true;this.rejectConnect=null;this.peer=event.source;this.peerOrigin=event.origin;this.cancel(this.timer);this.peer.postMessage({channel:'demo-b2b',nonce:this.nonce,type:'connected'},this.peerOrigin);return resolve();
     }
     if(m.type==='response'&&event.source===this.peer){const p=this.pending.get(m.id);if(p){this.cancel(p.timer);this.pending.delete(m.id);m.result?.ok?p.resolve(m.result.data):p.reject(new Error(m.result?.error||'GAS 回應格式錯誤'));}}
